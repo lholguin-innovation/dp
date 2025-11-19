@@ -1,0 +1,70 @@
+<%@ Page Language="C#" AutoEventWireup="true" %>
+<%@ Import Namespace="System.Net" %>
+<%@ Import Namespace="System.Net.Mail" %>
+<%@ Import Namespace="Newtonsoft.Json" %>
+
+<script runat="server">
+    public class Respuesta
+    {
+        public string status { get; set; }
+        public string message { get; set; }
+    }
+
+    protected void Page_Load(object sender, EventArgs e)
+    {
+        if (IsPostBack)
+        {
+            try
+            {
+                string json = new System.IO.StreamReader(Request.InputStream).ReadToEnd();
+                dynamic datos = JsonConvert.DeserializeObject(json);
+                string fecha = datos.fecha;
+                var orden = datos.orden;
+
+                string cuerpo = $"Hola Mario,\n\nPor favor ayúdanos a crear una requisición en Coupa con los siguientes artículos generados el día {fecha}:\n\n";
+
+                foreach (var item in orden)
+                {
+                    cuerpo += $"- {item.cantidad} {item.unidad} de {item.descripcion} (Parte: {item.parte}, Marca: {item.marca}, Modelo: {item.modelo})\n";
+                    cuerpo += $"  Precio Unitario: {item.precioUnitario} {item.moneda}, Total: {item.precioTotal}\n";
+                    cuerpo += $"  Link: {item.link}\n\n";
+                }
+
+                cuerpo += "Gracias por tu apoyo.\n\nAtentamente,\nEquipo de Automatización";
+
+                MailMessage mail = new MailMessage();
+                mail.From = new MailAddress("jcordoba01@lear.com");
+                mail.To.Add("jcordoba01@lear.com"); // Reemplaza con el correo real de Mario si es necesario
+                mail.Subject = "Solicitud de Requisición en Coupa";
+                mail.Body = cuerpo;
+
+                SmtpClient smtp = new SmtpClient("smtp.lear.com", 25);
+                smtp.Credentials = new NetworkCredential("jcordoba01@lear.com", "Redento1.0Redento");
+                smtp.EnableSsl = true;
+                smtp.Send(mail);
+
+                Respuesta respuesta = new Respuesta
+                {
+                    status = "OK",
+                    message = "Correo enviado correctamente."
+                };
+
+                Response.ContentType = "application/json";
+                Response.Write(JsonConvert.SerializeObject(respuesta));
+            }
+            catch (Exception ex)
+            {
+                Respuesta error = new Respuesta
+                {
+                    status = "Error",
+                    message = ex.Message
+                };
+
+                Response.ContentType = "application/json";
+                Response.Write(JsonConvert.SerializeObject(error));
+            }
+
+            Response.End();
+        }
+    }
+</script>

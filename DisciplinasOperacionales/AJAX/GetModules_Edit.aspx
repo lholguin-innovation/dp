@@ -10,6 +10,8 @@
 <script runat="server">
     string connectionString = "Server=mxchlac-sql04;Database=LAIMS;User Id=sqlIIT;Password=Le@r2025!iitdata;MultipleActiveResultSets=True;";
 
+    string strFiltroMachineId="";
+    string strFiltroModule="";
 
     protected void Page_Load(object sender, EventArgs e)                  
     {
@@ -163,14 +165,14 @@
 
                             report.Add(row);
                         }  
-                        /*
+                         
                         report.Add(
                             new Dictionary<string, object>
                             {
                                 { "Query", query }
                             }
                         );
-                        */ 
+                          
                     }
                 }
 
@@ -181,7 +183,7 @@
                 Response.StatusCode = 500;
                 Response.Write(JsonConvert.SerializeObject(new
                 {
-                    error = ex.Message,
+                    error = ex.Message + ex.StackTrace,
                     status = 500,
                     query
                 }));
@@ -236,7 +238,7 @@
 
             var queryBuilder = new StringBuilder();
             var baseBuilder = new StringBuilder();
-            int length = Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+            int length = 1;
 
             // Construimos la CTE Base con rangos de hora únicos (sin fechas)
             baseBuilder.AppendLine("WITH Base AS (");
@@ -257,6 +259,11 @@
 
             queryBuilder.Append(baseBuilder);
 
+            if(Machine_IDs !=""){
+                strFiltroMachineId = " AND m.MachineID IN (" + Machine_IDs + ") ";
+                length=Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+            }
+            if(Module_IDs !="")  strFiltroModule    = " AND m.Module IN (" + Module_IDs + ") " ;
             // SELECT principal agrupado por rango de hora
             queryBuilder.AppendLine(
                 "SELECT " +
@@ -278,8 +285,8 @@
                 "FROM Base " +
                 "LEFT JOIN ShopFloor.dbo.ModbusMachineHistory m ON " +
                 "    DATEPART(HOUR, m.Hora) = Base.HourInt " +
-                "    AND m.MachineID IN (" + Machine_IDs + ") " +
-                "    AND m.Module IN (" + Module_IDs + ") " +
+                    strFiltroMachineId +
+                    strFiltroModule +
                 "    AND DATEPART(HOUR, m.Hora) BETWEEN " + HoraInicio + " AND " + HoraFin + " " +
                 "    AND CAST(m.Hora AS DATE) BETWEEN '" + FechaInicio.ToString("yyyy-MM-dd") + "' AND '" + FechaFin.ToString("yyyy-MM-dd") + "' " +
                 "GROUP BY Base.Hour "
@@ -330,28 +337,29 @@
                 var queryBuilder = new StringBuilder();
                 var baseBuilder = new StringBuilder();
                 var current = FechaInicio.Date;
-                int length = Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+                int length = 1; // Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+                List<string> lstFechas = new List<string>();
 
                 // Construimos la CTE Base con todas las fechas
                 baseBuilder.AppendLine("WITH Base AS (");
-
                 while (current <= FechaFin.Date)
                 {
-                    string fechaStr = current.ToString("yyyy-MM-dd");
-                    baseBuilder.AppendLine("    SELECT CAST('" + fechaStr + "' AS DATE) AS StartDate UNION ALL");
+                    string fechaStr = current.ToString("yyyy-MM-dd"); 
+                    lstFechas.Add(" SELECT CAST('" + fechaStr + "' AS DATE) AS StartDate ");
                     current = current.AddDays(1);
                 }
-
-                // Eliminamos el último UNION ALL
-                int lastUnionIndex = baseBuilder.ToString().LastIndexOf("UNION ALL");
-                if (lastUnionIndex >= 0)
-                {
-                    baseBuilder.Remove(lastUnionIndex, "UNION ALL".Length);
+ 
+                if(lstFechas.Count>0){
+                    baseBuilder.AppendLine(String.Join(" UNION ALL ", lstFechas));
                 }
-                baseBuilder.AppendLine(")");
-
-                queryBuilder.Append(baseBuilder);
-
+                baseBuilder.AppendLine(")"); 
+                // segunda parte del query
+                queryBuilder.AppendLine(baseBuilder.ToString());
+                if(Machine_IDs !=""){
+                    strFiltroMachineId = " AND m.MachineID IN (" + Machine_IDs + ") ";
+                    length=Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+                }
+                if(Module_IDs !="")  strFiltroModule    = " AND m.Module IN (" + Module_IDs + ") " ;
                 // SELECT principal agrupado por día
                 queryBuilder.AppendLine(
                     "SELECT " +
@@ -368,14 +376,14 @@
                     "    ) AS [Efficiency], " +
                     "    ROUND(ISNULL(SUM(m.Utilization), 0) / 60, 2) AS [Utilization Mins], " +
                     "    CONCAT( " +
-                    "        ROUND(ISNULL(SUM(m.Utilization), 0) / 60 / (57 * " + length + ") * 100, 2), '%' " +
+                    "        ROUND(ISNULL(SUM(m.Utilization), 0) / 60 / (57 * " + length.ToString() + ") * 100, 2), '%' " +
                     "    ) AS [Utilization %] " +
                     "FROM Base " +
                     "LEFT JOIN ShopFloor.dbo.ModbusMachineHistory m ON " +
-                    "    CAST(m.Hora AS DATE) = Base.StartDate " +
-                    "    AND m.MachineID IN (" + Machine_IDs + ") " +
-                    "    AND m.Module IN (" + Module_IDs + ") " +
-                    "    AND DATEPART(HOUR, m.Hora) BETWEEN " + HoraInicio + " AND " + HoraFin + " " +
+                    "   CAST(m.Hora AS DATE) = Base.StartDate " +
+                    strFiltroMachineId +
+                    strFiltroModule +
+                    "   AND DATEPART(HOUR, m.Hora) BETWEEN " + HoraInicio + " AND " + HoraFin + " " +
                     "GROUP BY Base.StartDate " +
                     "ORDER BY Base.StartDate"
                 );
@@ -423,7 +431,12 @@
                     return "-- Invalid shift value";
             }
 
-            int length = Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+            int length = 1;
+            if(Machine_IDs !=""){
+                strFiltroMachineId = " AND m.MachineID IN (" + Machine_IDs + ") ";
+                length=Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+            }
+            if(Module_IDs !="")  strFiltroModule    = " AND m.Module IN (" + Module_IDs + ") " ;
 
             // Construcción del query agrupado por semana
             string query =
@@ -445,8 +458,8 @@
                 "    ) AS [Utilization %] " +
                 "FROM ShopFloor.dbo.ModbusMachineHistory m " +
                 "WHERE CAST(m.Hora AS DATE) BETWEEN '" + FechaInicio.ToString("yyyy-MM-dd") + "' AND '" + FechaFin.ToString("yyyy-MM-dd") + "' " +
-                "    AND m.MachineID IN (" + Machine_IDs + ") " +
-                "    AND m.Module IN (" + Module_IDs + ") " +
+                    strFiltroMachineId +
+                    strFiltroModule +
                 "    AND DATEPART(HOUR, m.Hora) BETWEEN " + HoraInicio + " AND " + HoraFin + " " +
                 "GROUP BY DATEPART(WEEK, m.Hora) " +
                 "ORDER BY DATEPART(WEEK, m.Hora)";
@@ -488,7 +501,12 @@
                     return "-- Invalid shift value";
             }
 
-            int cantidadMaquinas = Machine_IDs.Split(',').Select(e => e.Trim()).Count();
+            int cantidadMaquinas = 1;
+            if(Machine_IDs !=""){
+                strFiltroMachineId = " AND m.MachineID IN (" + Machine_IDs + ") ";
+                cantidadMaquinas=Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+            }
+            if(Module_IDs !="")  strFiltroModule    = " AND m.Module IN (" + Module_IDs + ") " ; 
 
             string query = string.Format(@"
                 SELECT
@@ -501,11 +519,11 @@
                     SUM(Ippm) AS Ippm,
                     ROUND(SUM(Utilization) / 60, 2) AS [Utilization Mins],
                     CONCAT(ROUND(SUM(Utilization) / 3600 / ({0} * {1} * 5) * 100, 2), '%') AS [Utilization %]
-                FROM ShopFloor.dbo.ModbusMachineHistory
-                WHERE Hora BETWEEN '{2}' AND '{3}'
-                AND MachineID IN ({4})
-                AND DATEPART(HOUR, Hora) BETWEEN {5} AND {6}
-                AND Module IN ({7}) 
+                FROM ShopFloor.dbo.ModbusMachineHistory m
+                WHERE Hora BETWEEN '{2}' AND '{3}' "
+                + strFiltroMachineId 
+                + strFiltroModule  
+                +@"AND DATEPART(HOUR, Hora) BETWEEN {4} AND {5}
                 GROUP BY
                    MONTH(Hora) 
                 ORDER BY [Month];",
@@ -513,10 +531,8 @@
                 cantidadMaquinas,
                 FechaInicio.ToString("yyyy-MM-dd"),
                 FechaFin.ToString("yyyy-MM-dd"),
-                Machine_IDs,
                 HoraInicio,
-                HoraFin,
-                Module_IDs
+                HoraFin
             );
 
             return query;
@@ -556,10 +572,13 @@
                 default:
                     return "-- Invalid shift value";
             }
-
-            int cantidadMaquinas    = Machine_IDs.Split(',').Select(e => e.Trim()).Count();
-            string condMachine_IDs  = (cantidadMaquinas==0)?"":string.Format("AND MachineID IN ({0})",Machine_IDs);
-            string condModule       = (cantidadMaquinas==0)?"":string.Format("AND Module IN ({0})",Module_IDs);
+ 
+            int cantidadMaquinas = 1;
+            if(Machine_IDs !=""){
+                strFiltroMachineId = " AND m.MachineID IN (" + Machine_IDs + ") ";
+                cantidadMaquinas=Machine_IDs.Split(',').Select(e => e.Trim()).ToArray().Length;
+            }
+            if(Module_IDs !="")  strFiltroModule    = " AND m.Module IN (" + Module_IDs + ") " ; 
 
             string query = string.Format(@"
                 SELECT
@@ -567,25 +586,23 @@
                     SUM(Request) AS Request,
                     SUM(Produced) AS Produced,
                     SUM(Variation) AS Variation,
-                    SUM(EFF) AS EFF,
+                    AVG(cast(EFF as decimal)) AS EFF,
                     SUM(Scrap) AS Scrap,
                     SUM(Ippm) AS Ippm,
                     ROUND(SUM(Utilization) / 60, 2) AS [Utilization Mins],
                     CONCAT(ROUND(SUM(Utilization) / 3600 / ({0} * {1} * 5) * 100, 2), '%') AS [Utilization %]
-                FROM ShopFloor.dbo.ModbusMachineHistory
-                WHERE year(Hora) BETWEEN year('{2}') AND year('{3}') "
-                + condMachine_IDs
-                +" AND DATEPART(HOUR, Hora) BETWEEN {5} AND {6}"
-                + condModule
+                FROM ShopFloor.dbo.ModbusMachineHistory m
+                WHERE year(Hora) BETWEEN year('{2}') AND year('{3}') " 
+                +" AND DATEPART(HOUR, Hora) BETWEEN {4} AND {5}"
+                + strFiltroMachineId
+                + strFiltroModule
                 +" GROUP BY YEAR(Hora)  ",
                 horasDisponiblesPorDia,
                 cantidadMaquinas,
                 FechaInicio.ToString("yyyy-MM-dd"),
-                FechaFin.ToString("yyyy-MM-dd"),
-                Machine_IDs,
+                FechaFin.ToString("yyyy-MM-dd"), 
                 HoraInicio,
-                HoraFin,
-                Module_IDs
+                HoraFin 
             );
 
             return query;
